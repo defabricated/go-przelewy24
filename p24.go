@@ -5,6 +5,7 @@ import "net/url"
 import "crypto/md5"
 import "net/http"
 import "io/ioutil"
+import "sync"
 
 //APIVersion Current version of przelewy24 API
 const APIVersion = "3.2"
