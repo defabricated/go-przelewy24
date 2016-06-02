@@ -218,6 +218,44 @@ func NewTransaction(MerchantID int, PosID int, CRCKey string, SessionID string, 
 	}
 }
 
+
+type Store interface {
+	// Get should return a cached *P24
+	Get(SessionID string) *P24
+
+	// Save should persist *P24 to the underlying store implementation
+	Save(p *P24) error
+}
+
+func NewSimpleStore() *SimpleStore {
+	return &SimpleStore{
+		m: sync.Mutex{},
+		c: make(map[string]*P24),
+	}
+}
+
+type SimpleStore struct {
+	m sync.Mutex
+	c map[string]*P24
+}
+
+func (s *SimpleStore) Get(SessionID string) *P24 {
+	s.m.Lock()
+	defer s.m.Unlock()
+
+	return s.c[SessionID]
+}
+func (s *SimpleStore) Save(p *P24) error {
+	s.m.Lock()
+	defer s.m.Unlock()
+
+	if _, ok := s.c[p.SessionID]; ok {
+		return fmt.Errorf("%s already in store", p.SessionID)
+	}
+	s.c[p.SessionID] = p
+	return nil
+}
+
 /*
 func main() {
 	p := NewTransaction(12345, 12345, "CRCKey", "UNIQUE SESSION ID", "Descriptn", "PLN", "p24@example.com", "http://example.com/p24/success")
