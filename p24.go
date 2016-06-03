@@ -87,7 +87,7 @@ func (p *P24) Register() (string, error) {
 	token := m.Get("token")
 	if token == "" {
 		errMsg := m.Get("errorMessage")
-		return "", fmt.Errorf("%s", errMsg)
+		return "", fmt.Errorf(errMsg)
 	}
 
 	p.registered = true
@@ -140,11 +140,10 @@ func (p *P24) Verify(values url.Values) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-
-	token := m.Get("token")
-	if token == "" {
+	
+	if m.Get("error") != "0" {
 		errMsg := m.Get("errorMessage")
-		return false, fmt.Errorf("%s", errMsg)
+		return false, fmt.Errorf(errMsg)
 	}
 
 	p.verified = true
