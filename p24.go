@@ -5,12 +5,19 @@ import "net/url"
 import "crypto/md5"
 import "net/http"
 import "io/ioutil"
-import "sync"
+import (
+	"sync"
+	"net"
+	"bytes"
+)
 
 //APIVersion Current version of przelewy24 API
 const APIVersion = "3.2"
 
-var DEBUG = false
+var ipRange = []net.IP{
+	net.ParseIP("91.216.191.181"),
+	net.ParseIP("91.216.191.185"),
+}
 
 type P24 struct {
 	MerchantID int
@@ -27,6 +34,8 @@ type P24 struct {
 
 	ReturnURL string
 	StatusURL string
+
+	Sandbox bool
 
 	ShoppingList ShoppingList
 
@@ -48,10 +57,10 @@ func (p *P24) Amount() int {
 	return amount
 }
 
-func (p *P24) apiCall(endPoint string, values url.Values) (url.Values, error) {
+func (p *P24) apiCall(endPoint string, values url.Values, sandbox bool) (url.Values, error) {
 	var resp *http.Response
 	var err error
-	if DEBUG {
+	if sandbox {
 		resp, err = http.PostForm("https://sandbox.przelewy24.pl/"+endPoint, values)
 	} else {
 		resp, err = http.PostForm("https://secure.przelewy24.pl/"+endPoint, values)
@@ -80,7 +89,7 @@ func (p *P24) Register() (string, error) {
 	}
 	v := p.Values()
 
-	m, err := p.apiCall("trnRegister", v)
+	m, err := p.apiCall("trnRegister", v, p.Sandbox)
 	if err != nil {
 		return "", err
 	}
@@ -92,7 +101,7 @@ func (p *P24) Register() (string, error) {
 
 	p.registered = true
 
-	if DEBUG {
+	if p.Sandbox {
 		return "https://sandbox.przelewy24.pl/trnRequest/" + token, err
 	}
 	return "https://secure.przelewy24.pl/trnRequest/" + token, err
@@ -136,11 +145,11 @@ func (p *P24) Verify(values url.Values) (bool, error) {
 	v.Add("p24_order_id", values.Get("p24_order_id"))
 	v.Add("p24_sign", localSign)
 
-	m, err := p.apiCall("trnVerify", v)
+	m, err := p.apiCall("trnVerify", v, p.Sandbox)
 	if err != nil {
 		return false, err
 	}
-	
+
 	if m.Get("error") != "0" {
 		errMsg := m.Get("errorMessage")
 		return false, fmt.Errorf(errMsg)
@@ -204,7 +213,7 @@ type Product struct {
 	Price       int
 }
 
-func NewTransaction(MerchantID int, PosID int, CRCKey string, SessionID string, Description string, Currency string, Email string, ReturnURL string) *P24 {
+func NewTransaction(MerchantID int, PosID int, CRCKey string, SessionID string, Description string, Currency string, Email string, ReturnURL string, Sandbox... bool) *P24 {
 	return &P24{
 		MerchantID:  MerchantID,
 		PosID:       PosID,
@@ -215,9 +224,20 @@ func NewTransaction(MerchantID int, PosID int, CRCKey string, SessionID string, 
 
 		Email:     Email,
 		ReturnURL: ReturnURL,
+
+		Sandbox: Sandbox[0],
 	}
 }
 
+//Checks IP to filter out the requests outside Przelewy24 API
+func CheckIP(ipString string) bool {
+	ip := net.ParseIP(ipString)
+	if ip.To4() == nil {
+		return false
+	}
+
+	return bytes.Compare(ip, ipRange[0]) >= 0 && bytes.Compare(ip, ipRange[1]) <= 0
+}
 
 type Store interface {
 	// Get should return a cached *P24
@@ -253,6 +273,17 @@ func (s *SimpleStore) Save(p *P24) error {
 		return fmt.Errorf("%s already in store", p.SessionID)
 	}
 	s.c[p.SessionID] = p
+	return nil
+}
+func (s *SimpleStore) Remove(p *P24) error {
+	s.m.Lock()
+	defer s.m.Unlock()
+
+	if _, ok := s.c[p.SessionID]; !ok {
+		return fmt.Errorf("%s not found in store", p.SessionID)
+	}
+
+	delete(s.c, p.SessionID)
 	return nil
 }
 
